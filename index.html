@@ -73,18 +73,15 @@
     document.getElementById('roleTitle').innerText = isAdmin ? "特教中心-櫃檯叫號" : "特教中心-請掃描取號";
     document.getElementById(isAdmin ? 'admin-section' : 'user-section').style.display = 'block';
 
-    // 即時同步
+    // 即時同步：這裡只負責更新文字，不負責發聲
     db.ref('queue').on('value', (snapshot) => {
         const data = snapshot.val() || { current: 0, last: 0, counter: 1 };
         document.getElementById('currentNum').innerText = data.current;
         document.getElementById('currentCounter').innerText = data.current > 0 ? "請至 " + data.counter + " 號櫃檯" : "準備叫號";
         document.getElementById('dbStatus').innerText = "連線狀態：正常運作中";
-        
-        if (isAdmin && data.current > 0) {
-            speak(data.current, data.counter);
-        }
     });
 
+    // 民眾取號功能
     function takeTicket() {
         db.ref('queue/last').transaction((last) => {
             const next = (last || 0) + 1;
@@ -93,6 +90,7 @@
         });
     }
 
+    // 叫號功能：改為按下按鈕時才「主動」報號
     function nextCall() {
         const cid = document.getElementById('counterId').value;
         db.ref('queue').transaction((data) => {
@@ -100,6 +98,10 @@
             if (data.current < data.last) {
                 data.current += 1;
                 data.counter = cid;
+                
+                // 只有按下這個按鈕的裝置 (iPad) 會觸發語音
+                speak(data.current, data.counter);
+                
                 return data;
             } else {
                 alert("目前沒有人在排隊取號喔！");
@@ -108,6 +110,7 @@
         });
     }
 
+    // 重置號碼功能
     function resetQueue() {
         if(confirm("確定要將所有號碼清零嗎？")) {
             db.ref('queue').set({ current: 0, last: 0, counter: 1 });
@@ -115,28 +118,24 @@
         }
     }
 
-    // --- 優化後的語音播報 ---
+    // 語音播報函式
     function speak(n, c) {
-        window.speechSynthesis.cancel();
+        window.speechSynthesis.cancel(); 
         const text = "請來賓 " + n + " 號，到 " + c + " 號櫃檯辦理";
-        const msg = new SpeechSynthesisUtterance(text);
-        
-        // 取得所有語音清單
+        const msg = new SynthesisUtterance ? new SpeechSynthesisUtterance(text) : null;
+        if(!msg) return;
+
         const voices = window.speechSynthesis.getVoices();
-        
-        // 優先挑選台灣中文聲音
         const voice = voices.find(v => (v.lang === 'zh-TW' || v.lang === 'zh_TW')) || voices[0];
         
         if (voice) msg.voice = voice;
         msg.lang = 'zh-TW';
         msg.volume = 1;
-        msg.rate = 0.85; // 稍微放慢，聽起來比較專業、不笨
+        msg.rate = 0.85; 
         msg.pitch = 1.0; 
-        
         window.speechSynthesis.speak(msg);
     }
 
-    // 確保語音列表在載入時就緒
     window.speechSynthesis.onvoiceschanged = () => {
         window.speechSynthesis.getVoices();
     };
