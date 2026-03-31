@@ -64,21 +64,30 @@
     document.getElementById('roleTitle').innerText = isAdmin ? "特教中心-櫃檯叫號" : "特教中心-請掃描取號";
     document.getElementById(isAdmin ? 'admin-section' : 'user-section').style.display = 'block';
 
-    // ✅ 去重變數，避免同一號碼播兩次
-    let lastSpoken = 0;
-
+    // 畫面同步：只負責更新 UI，不做任何語音
     db.ref('queue').on('value', (snapshot) => {
         const data = snapshot.val() || { current: 0, last: 0, counter: 1 };
         document.getElementById('currentNum').innerText = data.current;
-        document.getElementById('currentCounter').innerText = data.current > 0 ? "請至 " + data.counter + " 號櫃檯" : "準備叫號";
+        document.getElementById('currentCounter').innerText =
+            data.current > 0 ? "請至 " + data.counter + " 號櫃檯" : "準備叫號";
         document.getElementById('dbStatus').innerText = "連線狀態：正常運作中";
-
-        // ✅ 語音只在這裡觸發：admin、號碼 > 0、且沒播過
-        if (isAdmin && data.current > 0 && data.current !== lastSpoken) {
-            lastSpoken = data.current;
-            speak(data.current, data.counter);
-        }
     });
+
+    // 語音觸發：只有 admin、只監聽 current 欄位
+    // prevCurrent = null → 頁面剛載入，不播音
+    // 取號只改 last，current 沒動 → 完全不觸發
+    if (isAdmin) {
+        let prevCurrent = null;
+        db.ref('queue/current').on('value', (snapshot) => {
+            const current = snapshot.val() || 0;
+            if (prevCurrent !== null && current > 0 && current !== prevCurrent) {
+                db.ref('queue/counter').get().then((cs) => {
+                    speak(current, cs.val() || 1);
+                });
+            }
+            prevCurrent = current;
+        });
+    }
 
     function takeTicket() {
         db.ref('queue/last').transaction((last) => {
@@ -96,7 +105,6 @@
                 data.current += 1;
                 data.counter = cid;
                 return data;
-                // ✅ speak() 已移除，改由上方 on('value') 統一觸發
             } else {
                 alert("目前沒有人在排隊喔！");
                 return;
@@ -106,7 +114,6 @@
 
     function resetQueue() {
         if (confirm("確定要將所有號碼清零嗎？")) {
-            lastSpoken = 0; // ✅ 重置時一併清除去重記錄
             db.ref('queue').set({ current: 0, last: 0, counter: 1 });
             document.getElementById('myTicket').innerText = "--";
         }
