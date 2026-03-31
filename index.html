@@ -7,38 +7,44 @@
     <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
     <style>
-        body { font-family: "Microsoft JhengHei", sans-serif; text-align: center; background: #e9ecef; margin: 0; padding: 20px; }
-        .container { background: white; max-width: 450px; margin: 20px auto; padding: 40px 20px; border-radius: 30px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
-        .number-display { font-size: 7rem; font-weight: 900; color: #dc3545; margin: 10px 0; }
-        button { width: 90%; padding: 20px; font-size: 1.5rem; border-radius: 15px; border: none; cursor: pointer; margin-top: 10px; font-weight: bold; color: white; }
-        .btn-call { background: #28a745; }
-        .btn-take { background: #007bff; }
-        .debug-info { font-size: 0.8rem; color: #777; margin-top: 20px; padding: 10px; background: #eee; border-radius: 10px; }
+        /* 背景改為淺灰色，方便一眼辨認是否更新成功 */
+        body { font-family: "Microsoft JhengHei", sans-serif; text-align: center; background: #e9ecef; margin: 0; padding: 20px; color: #333; }
+        .container { background: white; max-width: 450px; margin: 20px auto; padding: 40px 20px; border-radius: 30px; box-shadow: 0 15px 35px rgba(0,0,0,0.1); border: 2px solid #eef2f7; }
+        .title { font-size: 1.8rem; margin-bottom: 30px; color: #2c3e50; font-weight: bold; }
+        .label { color: #888; font-size: 1.1rem; letter-spacing: 2px; text-transform: uppercase; }
+        .number-display { font-size: 7rem; font-weight: 900; color: #007bff; margin: 10px 0; text-shadow: 2px 2px 4px rgba(0,123,255,0.1); }
+        .counter-info { font-size: 1.6rem; color: #2ecc71; margin-bottom: 30px; font-weight: bold; height: 1.6em; }
+        button { width: 90%; padding: 22px; font-size: 1.5rem; border-radius: 20px; border: none; cursor: pointer; transition: all 0.2s; margin-top: 10px; font-weight: bold; }
+        .btn-call { background: #28a745; color: white; box-shadow: 0 6px #1e7e34; }
+        .btn-take { background: #007bff; color: white; box-shadow: 0 6px #0056b3; }
+        button:active { transform: translateY(4px); box-shadow: 0 2px #1e7e34; }
+        #admin-section { margin-top: 30px; padding-top: 30px; border-top: 2px dashed #ddd; }
+        input { padding: 10px; font-size: 1.2rem; width: 60px; text-align: center; border: 2px solid #ddd; border-radius: 10px; font-weight: bold; }
+        .status { font-size: 0.8rem; color: #bbb; margin-top: 30px; }
+        .debug-tag { color: red; font-weight: bold; font-size: 0.8rem; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2 id="roleTitle">診斷中...</h2>
-    <div style="color:#666">目前叫號</div>
+    <div class="title" id="roleTitle">載入中... <span class="debug-tag">V5</span></div>
+    <div class="label">目前叫號</div>
     <div id="currentNum" class="number-display">0</div>
-    <div id="currentCounter" style="font-size:1.5rem; color:#28a745; font-weight:bold;">--</div>
+    <div id="currentCounter" class="counter-info">請稍候</div>
 
     <div id="user-section" style="display:none;">
-        <div id="myTicket" class="number-display" style="font-size: 4rem; color: #6c757d;">--</div>
+        <hr style="border:0; border-top:1px solid #eee; margin: 30px 0;">
+        <div class="label">您的號碼</div>
+        <div id="myTicket" class="number-display" style="font-size: 4rem; color: #95a5a6;">--</div>
         <button class="btn-take" onclick="takeTicket()">點我取號</button>
     </div>
 
     <div id="admin-section" style="display:none;">
-        <div>我在 <input type="number" id="counterId" value="1" style="width:50px; font-size:1.2rem;"> 號櫃檯</div>
+        <div style="margin-bottom:20px;">我在 <input type="number" id="counterId" value="1"> 號櫃檯</div>
         <button class="btn-call" onclick="nextCall()">叫下一位</button>
-        <button style="background:#6c757d; font-size:0.9rem;" onclick="resetQueue()">重置資料</button>
+        <button style="background:#6c757d; font-size:1rem; padding:10px; margin-top:20px; box-shadow:0 4px #495057; color:white;" onclick="resetQueue()">重置號碼 (慎用)</button>
     </div>
-
-    <div class="debug-info">
-        路徑：queue_v5 | 模式：<span id="modeTag">讀取中</span><br>
-        <small>※ 如果抽號還會叫，表示你有另一台隱藏的管理員網頁開著！</small>
-    </div>
+    <div class="status" id="dbStatus">路徑：queue_v5 | 狀態：連線中...</div>
 </div>
 
 <script>
@@ -49,59 +55,84 @@
         projectId: "special-edu-call",
         storageBucket: "special-edu-call.firebasestorage.app",
         messagingSenderId: "290449966999",
-        appId: "1:290449966999:web:7ed6e61a1c2b0c9b9de6d2"
+        appId: "1:290449966999:web:7ed6e61a1c2b0c9b9de6d2",
+        measurementId: "G-FP84NLD3MP"
     };
 
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
+
     const isAdmin = window.location.search.includes('admin');
-    
-    document.getElementById('roleTitle').innerText = isAdmin ? "管理員端 (V5)" : "取號端 (V5)";
-    document.getElementById('modeTag').innerText = isAdmin ? "管理員 (會說話)" : "取號者 (不准說話)";
+    document.getElementById('roleTitle').innerHTML = isAdmin ? "管理員端 <span class='debug-tag'>V5</span>" : "取號端 <span class='debug-tag'>V5</span>";
     document.getElementById(isAdmin ? 'admin-section' : 'user-section').style.display = 'block';
 
-    // 1. 畫面同步 (絕對不准放 speak)
-    db.ref('queue_v5').on('value', (snap) => {
-        const data = snap.val() || { current: 0, last: 0, counter: 1 };
+    // 1. 同步顯示內容 (這裡絕對禁止出現 speak() 語音函式)
+    db.ref('queue_v5').on('value', (snapshot) => {
+        const data = snapshot.val() || { current: 0, last: 0, counter: 1 };
         document.getElementById('currentNum').innerText = data.current;
-        document.getElementById('currentCounter').innerText = "請至 " + data.counter + " 號櫃檯";
+        document.getElementById('currentCounter').innerText = data.current > 0 ? "請至 " + data.counter + " 號櫃檯" : "準備叫號";
+        document.getElementById('dbStatus').innerText = "路徑：queue_v5 | 系統正常運作中";
     });
 
-    // 2. 取號 (單純加 1)
+    // 2. 取號功能：僅更新 last 資料
     function takeTicket() {
-        db.ref('queue_v5/last').transaction(v => (v || 0) + 1, (err, comm, snap) => {
-            if (comm) document.getElementById('myTicket').innerText = snap.val();
+        db.ref('queue_v5/last').transaction((last) => {
+            const next = (last || 0) + 1;
+            document.getElementById('myTicket').innerText = next;
+            return next;
         });
     }
 
-    // 3. 叫號 (僅限點擊按鈕才播報)
+    // 3. 叫號功能：改用一次性讀取，手動觸發語音
     async function nextCall() {
-        if (!isAdmin) return;
-        const snap = await db.ref('queue_v5').once('value');
-        const data = snap.val() || { current: 0, last: 0 };
+        if (!isAdmin) return; // 二重保險：非管理員不能叫號
+        
+        const cid = document.getElementById('counterId').value;
+        const snapshot = await db.ref('queue_v5').once('value');
+        const data = snapshot.val() || { current: 0, last: 0 };
 
         if (data.current < data.last) {
             const nextNum = data.current + 1;
-            const cid = document.getElementById('counterId').value;
-            await db.ref('queue_v5').update({ current: nextNum, counter: cid });
             
-            // 只有「主動點擊」這台會播報
+            // 更新資料庫
+            await db.ref('queue_v5').update({
+                current: nextNum,
+                counter: cid
+            });
+
+            // 只有按下按鈕的「這台裝置」會發出聲音
             speak(nextNum, cid);
         } else {
-            alert("目前沒人在排隊！");
+            alert("目前沒有人在排隊喔！");
         }
     }
 
+    function resetQueue() {
+        if(confirm("確定要將所有號碼清零嗎？")) {
+            db.ref('queue_v5').set({ current: 0, last: 0, counter: 1 });
+            document.getElementById('myTicket').innerText = "--";
+        }
+    }
+
+    // 4. 語音功能
     function speak(n, c) {
-        window.speechSynthesis.cancel();
-        const msg = new SpeechSynthesisUtterance("請來賓 " + n + " 號，到 " + c + " 號櫃檯辦理");
+        if (!isAdmin) return;
+
+        window.speechSynthesis.cancel(); // 停止目前所有發音
+        const text = "請來賓 " + n + " 號，到 " + c + " 號櫃檯辦理";
+        const msg = new SpeechSynthesisUtterance(text);
+        
+        const voices = window.speechSynthesis.getVoices();
+        const voice = voices.find(v => (v.lang === 'zh-TW' || v.lang === 'zh_TW')) || voices[0];
+        
+        if (voice) msg.voice = voice;
         msg.lang = 'zh-TW';
+        msg.rate = 0.85;
         window.speechSynthesis.speak(msg);
     }
 
-    function resetQueue() {
-        if(confirm("確定重置？")) db.ref('queue_v5').set({ current: 0, last: 0, counter: 1 });
-    }
+    window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.getVoices(); };
 </script>
+
 </body>
 </html>
