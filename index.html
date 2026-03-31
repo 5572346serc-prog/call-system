@@ -60,7 +60,8 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    const isAdmin = window.location.search.includes('admin');
+    // ✅ 改用 hash 判斷，GitHub Pages 不會吃掉 # 後面的內容
+    const isAdmin = window.location.hash.includes('admin');
     document.getElementById('roleTitle').innerText = isAdmin ? "特教中心-櫃檯叫號" : "特教中心-請掃描取號";
     document.getElementById(isAdmin ? 'admin-section' : 'user-section').style.display = 'block';
 
@@ -74,7 +75,6 @@
     });
 
     function takeTicket() {
-        // 取號只改 last，跟語音完全無關
         db.ref('queue/last').transaction((last) => {
             const next = (last || 0) + 1;
             document.getElementById('myTicket').innerText = next;
@@ -84,7 +84,6 @@
 
     function nextCall() {
         const cid = document.getElementById('counterId').value;
-        // 用 .then() 確保 transaction 真正完成後才播音，不在 callback 裡播
         db.ref('queue').transaction((data) => {
             if (!data) data = { current: 0, last: 0 };
             if (data.current < data.last) {
@@ -92,14 +91,13 @@
                 data.counter = cid;
                 return data;
             } else {
-                return; // 沒人排隊，不更新
+                return;
             }
         }).then((result) => {
             if (!result.committed) {
                 alert("目前沒有人在排隊喔！");
                 return;
             }
-            // transaction 確實寫入後，才播音，只跑一次
             const data = result.snapshot.val();
             speak(data.current, data.counter);
         });
