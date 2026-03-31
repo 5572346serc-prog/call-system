@@ -64,16 +64,17 @@
     document.getElementById('roleTitle').innerText = isAdmin ? "特教中心-櫃檯叫號" : "特教中心-請掃描取號";
     document.getElementById(isAdmin ? 'admin-section' : 'user-section').style.display = 'block';
 
-    // 1. 即時同步畫面：所有人都會看到號碼變動，但這裡絕對不播音
+    // 畫面同步：只更新 UI，完全不碰語音
     db.ref('queue').on('value', (snapshot) => {
         const data = snapshot.val() || { current: 0, last: 0, counter: 1 };
         document.getElementById('currentNum').innerText = data.current;
-        document.getElementById('currentCounter').innerText = data.current > 0 ? "請至 " + data.counter + " 號櫃檯" : "準備叫號";
+        document.getElementById('currentCounter').innerText =
+            data.current > 0 ? "請至 " + data.counter + " 號櫃檯" : "準備叫號";
         document.getElementById('dbStatus').innerText = "連線狀態：正常運作中";
     });
 
-    // 2. 取號功能：只管取號，不管說話
     function takeTicket() {
+        // 取號只改 last，跟語音完全無關
         db.ref('queue/last').transaction((last) => {
             const next = (last || 0) + 1;
             document.getElementById('myTicket').innerText = next;
@@ -81,48 +82,48 @@
         });
     }
 
-    // 3. 叫號功能：只有點擊「叫下一位」的裝置會發出聲音
     function nextCall() {
         const cid = document.getElementById('counterId').value;
+        // 用 .then() 確保 transaction 真正完成後才播音，不在 callback 裡播
         db.ref('queue').transaction((data) => {
             if (!data) data = { current: 0, last: 0 };
             if (data.current < data.last) {
                 data.current += 1;
                 data.counter = cid;
-                
-                // 【關鍵修正】在交易成功完成後，主動發音
-                speak(data.current, data.counter);
-                
                 return data;
             } else {
+                return; // 沒人排隊，不更新
+            }
+        }).then((result) => {
+            if (!result.committed) {
                 alert("目前沒有人在排隊喔！");
                 return;
             }
+            // transaction 確實寫入後，才播音，只跑一次
+            const data = result.snapshot.val();
+            speak(data.current, data.counter);
         });
     }
 
     function resetQueue() {
-        if(confirm("確定要將所有號碼清零嗎？")) {
+        if (confirm("確定要將所有號碼清零嗎？")) {
             db.ref('queue').set({ current: 0, last: 0, counter: 1 });
             document.getElementById('myTicket').innerText = "--";
         }
     }
 
     function speak(n, c) {
-        // 二重保險：網址沒 admin 的絕對不出聲
         if (!isAdmin) return;
-
         window.speechSynthesis.cancel();
         const text = "請來賓 " + n + " 號，到 " + c + " 號櫃檯辦理";
         const msg = new SpeechSynthesisUtterance(text);
-        
         const voices = window.speechSynthesis.getVoices();
         const voice = voices.find(v => (v.lang === 'zh-TW' || v.lang === 'zh_TW')) || voices[0];
-        
         if (voice) msg.voice = voice;
         msg.lang = 'zh-TW';
         msg.volume = 1;
         msg.rate = 0.85;
+        msg.pitch = 1.0;
         window.speechSynthesis.speak(msg);
     }
 
