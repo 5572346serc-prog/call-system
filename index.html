@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>特教中心叫號系統</title>
+    <title>特教中心叫號系統-穩定版</title>
     <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
     <style>
@@ -28,7 +28,7 @@
     <div class="title" id="roleTitle">載入中...</div>
     <div class="label">目前叫號</div>
     <div id="currentNum" class="number-display">0</div>
-    <div id="currentCounter" class="counter-info">請稍候</div>
+    <div id="currentCounter" class="counter-info">準備中</div>
 
     <div id="user-section" style="display:none;">
         <hr style="border:0; border-top:1px solid #eee; margin: 30px 0;">
@@ -64,46 +64,52 @@
     document.getElementById('roleTitle').innerText = isAdmin ? "特教中心-櫃檯叫號" : "特教中心-請掃描取號";
     document.getElementById(isAdmin ? 'admin-section' : 'user-section').style.display = 'block';
 
-    // 1. 即時同步畫面：僅負責更新介面文字
-    db.ref('queue').on('value', (snapshot) => {
-        const data = snapshot.val() || { current: 0, last: 0, counter: 1 };
-        document.getElementById('currentNum').innerText = data.current;
-        document.getElementById('currentCounter').innerText = data.current > 0 ? "請至 " + data.counter + " 號櫃檯" : "準備叫號";
-        document.getElementById('dbStatus').innerText = "連線狀態：正常運作中";
+    // --- 1. 監聽「目前叫號」：只改文字，絕對不準呼叫 speak() ---
+    db.ref('queue/current').on('value', (snap) => {
+        document.getElementById('currentNum').innerText = snap.val() || 0;
     });
 
-    // 2. 取號功能：僅更新 last，不影響叫號發音
+    db.ref('queue/counter').on('value', (snap) => {
+        const c = snap.val() || 1;
+        document.getElementById('currentCounter').innerText = "請至 " + c + " 號櫃檯";
+    });
+
+    db.ref('queue/last').on('value', (snap) => {
+        document.getElementById('dbStatus').innerText = "系統正常 (最新取號: " + (snap.val() || 0) + ")";
+    });
+
+    // --- 2. 取號功能 ---
     function takeTicket() {
-        db.ref('queue/last').transaction((last) => {
-            const next = (last || 0) + 1;
+        db.ref('queue/last').transaction((currentLast) => {
+            const next = (currentLast || 0) + 1;
             document.getElementById('myTicket').innerText = next;
             return next;
         });
     }
 
-    // 3. 叫號功能：改用一次性讀取與更新，確保語音只執行一次
-    function nextCall() {
+    // --- 3. 叫號功能 (核心修正) ---
+    async function nextCall() {
         if (!isAdmin) return;
         const cid = document.getElementById('counterId').value;
         
-        db.ref('queue').get().then((snapshot) => {
-            const data = snapshot.val() || { current: 0, last: 0 };
+        // 使用 once('value') 確保只讀取一次，避免監聽循環
+        const snapshot = await db.ref('queue').once('value');
+        const data = snapshot.val() || { current: 0, last: 0 };
+
+        if (data.current < data.last) {
+            const nextNum = data.current + 1;
             
-            if (data.current < data.last) {
-                const newCurrent = data.current + 1;
-                
-                // 更新資料庫
-                db.ref('queue').update({
-                    current: newCurrent,
-                    counter: cid
-                }).then(() => {
-                    // 【關鍵】只有在更新成功後，才呼叫語音，且只呼叫這一次
-                    speak(newCurrent, cid);
-                });
-            } else {
-                alert("目前沒有人在排隊喔！");
-            }
-        });
+            // 同時更新「號碼」與「櫃檯」，成功後才發音
+            await db.ref('queue').update({
+                current: nextNum,
+                counter: cid
+            });
+
+            // 只有點擊按鈕的這個裝置會發出聲音
+            speak(nextNum, cid);
+        } else {
+            alert("目前沒有人在排隊喔！");
+        }
     }
 
     function resetQueue() {
@@ -113,23 +119,27 @@
         }
     }
 
-    // 4. 語音功能
+    // --- 4. 語音功能 ---
     function speak(n, c) {
-        window.speechSynthesis.cancel(); // 停止目前所有正在說的話
+        if (!isAdmin) return; 
+
+        // 強制停止所有進行中的語音，避免重疊
+        window.speechSynthesis.cancel();
         
         const text = "請來賓 " + n + " 號，到 " + c + " 號櫃檯辦理";
         const msg = new SpeechSynthesisUtterance(text);
         
         const voices = window.speechSynthesis.getVoices();
-        const voice = voices.find(v => (v.lang === 'zh-TW' || v.lang === 'zh_TW')) || voices[0];
+        const voice = voices.find(v => v.lang.includes('zh-TW')) || voices[0];
         
         if (voice) msg.voice = voice;
         msg.lang = 'zh-TW';
-        msg.rate = 0.85;
+        msg.rate = 0.8; // 稍微放慢語速更清楚
+        
         window.speechSynthesis.speak(msg);
     }
 
-    // 預載語音清單
+    // 預載語音
     window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.getVoices(); };
 </script>
 
