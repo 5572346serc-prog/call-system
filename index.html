@@ -13,12 +13,10 @@
         .label { color: #888; font-size: 1.1rem; letter-spacing: 2px; text-transform: uppercase; }
         .number-display { font-size: 7rem; font-weight: 900; color: #007bff; margin: 10px 0; text-shadow: 2px 2px 4px rgba(0,123,255,0.1); }
         .counter-info { font-size: 1.6rem; color: #2ecc71; margin-bottom: 30px; font-weight: bold; height: 1.6em; }
-        
         button { width: 90%; padding: 22px; font-size: 1.5rem; border-radius: 20px; border: none; cursor: pointer; transition: all 0.2s; margin-top: 10px; font-weight: bold; }
         .btn-call { background: #28a745; color: white; box-shadow: 0 6px #1e7e34; }
         .btn-take { background: #007bff; color: white; box-shadow: 0 6px #0056b3; }
         button:active { transform: translateY(4px); box-shadow: 0 2px #1e7e34; }
-        
         #admin-section { margin-top: 30px; padding-top: 30px; border-top: 2px dashed #ddd; }
         .counter-input { font-size: 1.2rem; margin-bottom: 20px; }
         input { padding: 10px; font-size: 1.2rem; width: 60px; text-align: center; border: 2px solid #ddd; border-radius: 10px; font-weight: bold; }
@@ -29,7 +27,6 @@
 
 <div class="container">
     <div class="title" id="roleTitle">載入中...</div>
-    
     <div class="label">目前叫號</div>
     <div id="currentNum" class="number-display">0</div>
     <div id="currentCounter" class="counter-info">請稍候</div>
@@ -48,12 +45,10 @@
         <button class="btn-call" onclick="nextCall()">叫下一位</button>
         <button style="background:#6c757d; font-size:1rem; padding:10px; margin-top:20px; box-shadow:0 4px #495057; color:white;" onclick="resetQueue()">重置號碼 (慎用)</button>
     </div>
-
     <div class="status" id="dbStatus">連線狀態：偵測中...</div>
 </div>
 
 <script>
-    // Firebase 配置
     const firebaseConfig = {
         apiKey: "AIzaSyBf5PGYSqrK3pJwEaIHct1jQB4c1r8_0Yw",
         authDomain: "special-edu-call.firebaseapp.com",
@@ -68,12 +63,11 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    // 判斷權限
     const isAdmin = window.location.search.includes('admin');
     document.getElementById('roleTitle').innerText = isAdmin ? "特教中心-櫃檯叫號" : "特教中心-請掃描取號";
     document.getElementById(isAdmin ? 'admin-section' : 'user-section').style.display = 'block';
 
-    // 即時同步：這裡只負責更新文字，不負責發聲
+    // 即時同步：這裡【絕對不准】放 speak()，只負責更新畫面的數字
     db.ref('queue').on('value', (snapshot) => {
         const data = snapshot.val() || { current: 0, last: 0, counter: 1 };
         document.getElementById('currentNum').innerText = data.current;
@@ -81,7 +75,6 @@
         document.getElementById('dbStatus').innerText = "連線狀態：正常運作中";
     });
 
-    // 民眾取號功能
     function takeTicket() {
         db.ref('queue/last').transaction((last) => {
             const next = (last || 0) + 1;
@@ -90,7 +83,7 @@
         });
     }
 
-    // 叫號功能：改為按下按鈕時才「主動」報號
+    // 叫號功能：只有點擊這個按鈕時，才會執行 speak()
     function nextCall() {
         const cid = document.getElementById('counterId').value;
         db.ref('queue').transaction((data) => {
@@ -99,7 +92,7 @@
                 data.current += 1;
                 data.counter = cid;
                 
-                // 只有按下這個按鈕的裝置 (iPad) 會觸發語音
+                // 【重點】在這裡執行語音：只有點擊按鈕的這一秒會報號
                 speak(data.current, data.counter);
                 
                 return data;
@@ -110,7 +103,6 @@
         });
     }
 
-    // 重置號碼功能
     function resetQueue() {
         if(confirm("確定要將所有號碼清零嗎？")) {
             db.ref('queue').set({ current: 0, last: 0, counter: 1 });
@@ -118,27 +110,27 @@
         }
     }
 
-    // 語音播報函式
     function speak(n, c) {
-        window.speechSynthesis.cancel(); 
+        // 先強制停止所有正在說的話
+        window.speechSynthesis.cancel();
+        
         const text = "請來賓 " + n + " 號，到 " + c + " 號櫃檯辦理";
-        const msg = new SynthesisUtterance ? new SpeechSynthesisUtterance(text) : null;
-        if(!msg) return;
-
+        const msg = new SpeechSynthesisUtterance(text);
+        
         const voices = window.speechSynthesis.getVoices();
         const voice = voices.find(v => (v.lang === 'zh-TW' || v.lang === 'zh_TW')) || voices[0];
         
         if (voice) msg.voice = voice;
         msg.lang = 'zh-TW';
         msg.volume = 1;
-        msg.rate = 0.85; 
-        msg.pitch = 1.0; 
+        msg.rate = 0.85;
+        msg.pitch = 1.0;
+        
         window.speechSynthesis.speak(msg);
     }
 
-    window.speechSynthesis.onvoiceschanged = () => {
-        window.speechSynthesis.getVoices();
-    };
+    // 初始化語音列表
+    window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.getVoices(); };
 </script>
 
 </body>
