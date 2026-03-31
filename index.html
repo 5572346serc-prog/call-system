@@ -18,7 +18,6 @@
         .btn-take { background: #007bff; color: white; box-shadow: 0 6px #0056b3; }
         button:active { transform: translateY(4px); box-shadow: 0 2px #1e7e34; }
         #admin-section { margin-top: 30px; padding-top: 30px; border-top: 2px dashed #ddd; }
-        .counter-input { font-size: 1.2rem; margin-bottom: 20px; }
         input { padding: 10px; font-size: 1.2rem; width: 60px; text-align: center; border: 2px solid #ddd; border-radius: 10px; font-weight: bold; }
         .status { font-size: 0.8rem; color: #bbb; margin-top: 30px; }
     </style>
@@ -39,9 +38,7 @@
     </div>
 
     <div id="admin-section" style="display:none;">
-        <div class="counter-input">
-            我在 <input type="number" id="counterId" value="1"> 號櫃檯
-        </div>
+        <div style="margin-bottom:20px;">我在 <input type="number" id="counterId" value="1"> 號櫃檯</div>
         <button class="btn-call" onclick="nextCall()">叫下一位</button>
         <button style="background:#6c757d; font-size:1rem; padding:10px; margin-top:20px; box-shadow:0 4px #495057; color:white;" onclick="resetQueue()">重置號碼 (慎用)</button>
     </div>
@@ -63,11 +60,12 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
+    // 【關鍵 1】這是一個開關，如果是民眾端，此值為 false
     const isAdmin = window.location.search.includes('admin');
     document.getElementById('roleTitle').innerText = isAdmin ? "特教中心-櫃檯叫號" : "特教中心-請掃描取號";
     document.getElementById(isAdmin ? 'admin-section' : 'user-section').style.display = 'block';
 
-    // 即時同步：這裡【絕對不准】放 speak()，只負責更新畫面的數字
+    // 即時同步：只更新文字
     db.ref('queue').on('value', (snapshot) => {
         const data = snapshot.val() || { current: 0, last: 0, counter: 1 };
         document.getElementById('currentNum').innerText = data.current;
@@ -83,7 +81,6 @@
         });
     }
 
-    // 叫號功能：只有點擊這個按鈕時，才會執行 speak()
     function nextCall() {
         const cid = document.getElementById('counterId').value;
         db.ref('queue').transaction((data) => {
@@ -91,13 +88,11 @@
             if (data.current < data.last) {
                 data.current += 1;
                 data.counter = cid;
-                
-                // 【重點】在這裡執行語音：只有點擊按鈕的這一秒會報號
+                // 按下叫號時，主動呼叫語音
                 speak(data.current, data.counter);
-                
                 return data;
             } else {
-                alert("目前沒有人在排隊取號喔！");
+                alert("目前沒有人在排隊喔！");
                 return;
             }
         });
@@ -111,25 +106,21 @@
     }
 
     function speak(n, c) {
-        // 先強制停止所有正在說的話
+        // 【關鍵 2：終極封印】如果不是工作人員網址，直接跳出，什麼都不准說！
+        if (!isAdmin) return;
+
         window.speechSynthesis.cancel();
-        
         const text = "請來賓 " + n + " 號，到 " + c + " 號櫃檯辦理";
         const msg = new SpeechSynthesisUtterance(text);
-        
         const voices = window.speechSynthesis.getVoices();
         const voice = voices.find(v => (v.lang === 'zh-TW' || v.lang === 'zh_TW')) || voices[0];
-        
         if (voice) msg.voice = voice;
         msg.lang = 'zh-TW';
         msg.volume = 1;
         msg.rate = 0.85;
-        msg.pitch = 1.0;
-        
         window.speechSynthesis.speak(msg);
     }
 
-    // 初始化語音列表
     window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.getVoices(); };
 </script>
 
