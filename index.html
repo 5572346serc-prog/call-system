@@ -60,17 +60,24 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    // 【關鍵 1】這是一個開關，如果是民眾端，此值為 false
     const isAdmin = window.location.search.includes('admin');
     document.getElementById('roleTitle').innerText = isAdmin ? "特教中心-櫃檯叫號" : "特教中心-請掃描取號";
     document.getElementById(isAdmin ? 'admin-section' : 'user-section').style.display = 'block';
 
-    // 即時同步：只更新文字
+    // ✅ 去重變數，避免同一號碼播兩次
+    let lastSpoken = 0;
+
     db.ref('queue').on('value', (snapshot) => {
         const data = snapshot.val() || { current: 0, last: 0, counter: 1 };
         document.getElementById('currentNum').innerText = data.current;
         document.getElementById('currentCounter').innerText = data.current > 0 ? "請至 " + data.counter + " 號櫃檯" : "準備叫號";
         document.getElementById('dbStatus').innerText = "連線狀態：正常運作中";
+
+        // ✅ 語音只在這裡觸發：admin、號碼 > 0、且沒播過
+        if (isAdmin && data.current > 0 && data.current !== lastSpoken) {
+            lastSpoken = data.current;
+            speak(data.current, data.counter);
+        }
     });
 
     function takeTicket() {
@@ -88,9 +95,8 @@
             if (data.current < data.last) {
                 data.current += 1;
                 data.counter = cid;
-                // 按下叫號時，主動呼叫語音
-                speak(data.current, data.counter);
                 return data;
+                // ✅ speak() 已移除，改由上方 on('value') 統一觸發
             } else {
                 alert("目前沒有人在排隊喔！");
                 return;
@@ -99,16 +105,15 @@
     }
 
     function resetQueue() {
-        if(confirm("確定要將所有號碼清零嗎？")) {
+        if (confirm("確定要將所有號碼清零嗎？")) {
+            lastSpoken = 0; // ✅ 重置時一併清除去重記錄
             db.ref('queue').set({ current: 0, last: 0, counter: 1 });
             document.getElementById('myTicket').innerText = "--";
         }
     }
 
     function speak(n, c) {
-        // 【關鍵 2：終極封印】如果不是工作人員網址，直接跳出，什麼都不准說！
         if (!isAdmin) return;
-
         window.speechSynthesis.cancel();
         const text = "請來賓 " + n + " 號，到 " + c + " 號櫃檯辦理";
         const msg = new SpeechSynthesisUtterance(text);
@@ -118,6 +123,7 @@
         msg.lang = 'zh-TW';
         msg.volume = 1;
         msg.rate = 0.85;
+        msg.pitch = 1.0;
         window.speechSynthesis.speak(msg);
     }
 
