@@ -46,7 +46,6 @@
 </div>
 
 <script>
-    // --- Firebase 配置 ---
     const firebaseConfig = {
         apiKey: "AIzaSyBf5PGYSqrK3pJwEaIHct1jQB4c1r8_0Yw",
         authDomain: "special-edu-call.firebaseapp.com",
@@ -65,7 +64,7 @@
     document.getElementById('roleTitle').innerText = isAdmin ? "特教中心-櫃檯叫號" : "特教中心-請掃描取號";
     document.getElementById(isAdmin ? 'admin-section' : 'user-section').style.display = 'block';
 
-    // 1. 即時同步：這裡只負責更新畫面顯示，絕對不呼叫 speak()
+    // 1. 即時同步畫面：僅負責更新介面文字
     db.ref('queue').on('value', (snapshot) => {
         const data = snapshot.val() || { current: 0, last: 0, counter: 1 };
         document.getElementById('currentNum').innerText = data.current;
@@ -73,7 +72,7 @@
         document.getElementById('dbStatus').innerText = "連線狀態：正常運作中";
     });
 
-    // 2. 取號功能：僅更新 last 數值，不影響叫號顯示
+    // 2. 取號功能：僅更新 last，不影響叫號發音
     function takeTicket() {
         db.ref('queue/last').transaction((last) => {
             const next = (last || 0) + 1;
@@ -82,30 +81,28 @@
         });
     }
 
-    // 3. 叫號功能：改用非非監聽方式，確保聲音只在「點擊按鈕」時觸發一次
+    // 3. 叫號功能：改用一次性讀取與更新，確保語音只執行一次
     function nextCall() {
+        if (!isAdmin) return;
         const cid = document.getElementById('counterId').value;
         
-        // 先讀取一次目前的資料，判斷是否還有人在排隊
         db.ref('queue').get().then((snapshot) => {
             const data = snapshot.val() || { current: 0, last: 0 };
             
             if (data.current < data.last) {
-                const nextNum = data.current + 1;
+                const newCurrent = data.current + 1;
                 
                 // 更新資料庫
                 db.ref('queue').update({
-                    current: nextNum,
+                    current: newCurrent,
                     counter: cid
                 }).then(() => {
-                    // 更新成功後，由「這台裝置」發音一次
-                    speak(nextNum, cid);
+                    // 【關鍵】只有在更新成功後，才呼叫語音，且只呼叫這一次
+                    speak(newCurrent, cid);
                 });
             } else {
                 alert("目前沒有人在排隊喔！");
             }
-        }).catch((error) => {
-            console.error("讀取失敗:", error);
         });
     }
 
@@ -118,16 +115,13 @@
 
     // 4. 語音功能
     function speak(n, c) {
-        // 只有 admin 介面才能出聲
-        if (!isAdmin) return;
-
-        window.speechSynthesis.cancel(); // 先停止之前的發音
+        window.speechSynthesis.cancel(); // 停止目前所有正在說的話
+        
         const text = "請來賓 " + n + " 號，到 " + c + " 號櫃檯辦理";
         const msg = new SpeechSynthesisUtterance(text);
         
-        // 設定語系
         const voices = window.speechSynthesis.getVoices();
-        const voice = voices.find(v => v.lang === 'zh-TW') || voices[0];
+        const voice = voices.find(v => (v.lang === 'zh-TW' || v.lang === 'zh_TW')) || voices[0];
         
         if (voice) msg.voice = voice;
         msg.lang = 'zh-TW';
@@ -135,7 +129,7 @@
         window.speechSynthesis.speak(msg);
     }
 
-    // 預載語音清單（避免 Chrome 第一次抓不到聲音）
+    // 預載語音清單
     window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.getVoices(); };
 </script>
 
