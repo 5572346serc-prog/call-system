@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>特教叫號-V5最終優化版</title>
+    <title>特教叫號-V6穩定優化版</title>
     <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
     <style>
@@ -20,13 +20,14 @@
         #admin-section { margin-top: 30px; padding-top: 30px; border-top: 2px dashed #ddd; }
         input { padding: 10px; font-size: 1.2rem; width: 60px; text-align: center; border: 2px solid #ddd; border-radius: 10px; font-weight: bold; }
         .status { font-size: 0.8rem; color: #bbb; margin-top: 30px; }
-        .debug-tag { color: red; font-weight: bold; font-size: 0.8rem; }
+        .tip-text { color: #e74c3c; font-weight: bold; font-size: 1.1rem; margin-top: 10px; }
+        .debug-tag { color: #2980b9; font-weight: bold; font-size: 0.8rem; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <div class="title" id="roleTitle">載入中... <span class="debug-tag">V5-Final</span></div>
+    <div class="title" id="roleTitle">載入中... <span class="debug-tag">V6</span></div>
     <div class="label">目前叫號</div>
     <div id="currentNum" class="number-display">0</div>
     <div id="currentCounter" class="counter-info">請稍候</div>
@@ -35,15 +36,19 @@
         <hr style="border:0; border-top:1px solid #eee; margin: 30px 0;">
         <div class="label">您的號碼</div>
         <div id="myTicket" class="number-display" style="font-size: 4rem; color: #95a5a6;">--</div>
-        <button class="btn-take" onclick="takeTicket()">點我取號</button>
+        
+        <div class="tip-text">⚠️ 擊點一次即可</div>
+        <div class="tip-text">📸 建議螢幕截圖您的號碼</div>
+        
+        <button class="btn-take" onclick="takeTicket()" style="margin-top: 20px;">點我取號</button>
     </div>
 
     <div id="admin-section" style="display:none;">
         <div style="margin-bottom:20px;">我在 <input type="number" id="counterId" value="1"> 號櫃檯</div>
-        <button class="btn-call" onclick="nextCall()">叫下一位</button>
+        <button class="btn-call" id="callBtn" onclick="nextCall()">叫下一位</button>
         <button style="background:#6c757d; font-size:1rem; padding:10px; margin-top:20px; box-shadow:0 4px #495057; color:white;" onclick="resetQueue()">重置號碼 (慎用)</button>
     </div>
-    <div class="status" id="dbStatus">路徑：queue_v5 | 狀態：連線中...</div>
+    <div class="status" id="dbStatus">路徑：queue_v5 | 系統就緒</div>
 </div>
 
 <script>
@@ -62,69 +67,78 @@
     const db = firebase.database();
 
     const isAdmin = window.location.search.includes('admin');
-    document.getElementById('roleTitle').innerHTML = isAdmin ? "管理員端 <span class='debug-tag'>V5-Final</span>" : "取號端 <span class='debug-tag'>V5-Final</span>";
+    document.getElementById('roleTitle').innerHTML = isAdmin ? "管理員端 <span class='debug-tag'>V6-iPad優化</span>" : "取號端 <span class='debug-tag'>V6</span>";
     document.getElementById(isAdmin ? 'admin-section' : 'user-section').style.display = 'block';
 
+    // 1. 同步資料 (不含語音)
     db.ref('queue_v5').on('value', (snapshot) => {
         const data = snapshot.val() || { current: 0, last: 0, counter: 1 };
         document.getElementById('currentNum').innerText = data.current;
         document.getElementById('currentCounter').innerText = data.current > 0 ? "請至 " + data.counter + " 號櫃檯" : "準備叫號";
-        document.getElementById('dbStatus').innerText = "路徑：queue_v5 | 系統正常連線";
     });
 
+    // 2. 取號
     function takeTicket() {
-        db.ref('queue_v5/last').transaction((last) => {
-            const next = (last || 0) + 1;
-            document.getElementById('myTicket').innerText = next;
-            return next;
+        db.ref('queue_v5/last').transaction((last) => (last || 0) + 1, (err, comm, snap) => {
+            if (comm) document.getElementById('myTicket').innerText = snap.val();
         });
     }
 
+    // 3. 叫號 (針對 iPad 優化)
     async function nextCall() {
-        if (!isAdmin) return; 
+        if (!isAdmin) return;
+        
+        // 觸發一次空的語音，用來「解鎖」iPad 的自動播放限制
+        window.speechSynthesis.speak(new SpeechSynthesisUtterance(""));
+
         const cid = document.getElementById('counterId').value;
         const snapshot = await db.ref('queue_v5').once('value');
         const data = snapshot.val() || { current: 0, last: 0 };
 
         if (data.current < data.last) {
             const nextNum = data.current + 1;
-            await db.ref('queue_v5').update({
-                current: nextNum,
-                counter: cid
-            });
-            speak(nextNum, cid);
+            await db.ref('queue_v5').update({ current: nextNum, counter: cid });
+            
+            // 延遲 200 毫秒播報，確保 iPad 語音引擎已喚醒
+            setTimeout(() => {
+                speak(nextNum, cid);
+            }, 200);
         } else {
             alert("目前沒有人在排隊喔！");
         }
     }
 
-    function resetQueue() {
-        if(confirm("確定要將所有號碼清零嗎？")) {
-            db.ref('queue_v5').set({ current: 0, last: 0, counter: 1 });
-            document.getElementById('myTicket').innerText = "--";
-        }
-    }
-
+    // 4. 語音功能 (強化 iPad 相容性)
     function speak(n, c) {
-        if (!isAdmin) return;
-        window.speechSynthesis.cancel(); 
+        const synth = window.speechSynthesis;
+        synth.cancel(); // 停止所有舊語音
+
         const text = "請來賓 " + n + " 號，到 " + c + " 號櫃檯辦理";
         const msg = new SpeechSynthesisUtterance(text);
         
-        const voices = window.speechSynthesis.getVoices();
-        const voice = voices.find(v => (v.lang === 'zh-TW' || v.lang === 'zh_TW')) || voices[0];
-        
-        if (voice) msg.voice = voice;
+        // 強制指定中文語系
         msg.lang = 'zh-TW';
+        msg.volume = 1.0;
+        msg.rate = 0.75;
+
+        // 嘗試抓取 iPad 上的 Siri 聲音
+        const voices = synth.getVoices();
+        const preferredVoice = voices.find(v => v.lang === 'zh-TW' && v.name.includes('Meijia')) || 
+                               voices.find(v => v.lang.includes('zh-TW')) || 
+                               voices[0];
         
-        // --- 這裡就是優化的重點 ---
-        msg.rate = 0.75;  // 調整為最舒適的語速
-        msg.pitch = 1.0;  // 穩定的音調
-        msg.volume = 1;   // 最大音量
-        
-        window.speechSynthesis.speak(msg);
+        if (preferredVoice) msg.voice = preferredVoice;
+
+        synth.speak(msg);
     }
 
+    function resetQueue() {
+        if(confirm("確定清零所有號碼？")) {
+            db.ref('queue_v5').set({ current: 0, last: 0, counter: 1 });
+        }
+    }
+
+    // iPad 預載語音清單
     window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.getVoices(); };
 </script>
 
