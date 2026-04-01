@@ -3,30 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>特教叫號-V6.2重播優化版</title>
+    <title>特教叫號-V5隔離診斷版</title>
     <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
     <style>
+        /* 背景改為淺灰色，方便一眼辨認是否更新成功 */
         body { font-family: "Microsoft JhengHei", sans-serif; text-align: center; background: #e9ecef; margin: 0; padding: 20px; color: #333; }
         .container { background: white; max-width: 450px; margin: 20px auto; padding: 40px 20px; border-radius: 30px; box-shadow: 0 15px 35px rgba(0,0,0,0.1); border: 2px solid #eef2f7; }
         .title { font-size: 1.8rem; margin-bottom: 30px; color: #2c3e50; font-weight: bold; }
-        .label { color: #888; font-size: 1.1rem; letter-spacing: 2px; }
-        .number-display { font-size: 7rem; font-weight: 900; color: #007bff; margin: 10px 0; }
+        .label { color: #888; font-size: 1.1rem; letter-spacing: 2px; text-transform: uppercase; }
+        .number-display { font-size: 7rem; font-weight: 900; color: #007bff; margin: 10px 0; text-shadow: 2px 2px 4px rgba(0,123,255,0.1); }
         .counter-info { font-size: 1.6rem; color: #2ecc71; margin-bottom: 30px; font-weight: bold; height: 1.6em; }
         button { width: 90%; padding: 22px; font-size: 1.5rem; border-radius: 20px; border: none; cursor: pointer; transition: all 0.2s; margin-top: 10px; font-weight: bold; }
         .btn-call { background: #28a745; color: white; box-shadow: 0 6px #1e7e34; }
-        .btn-replay { background: #17a2b8; color: white; box-shadow: 0 6px #117a8b; } /* 重播按鈕顏色 */
         .btn-take { background: #007bff; color: white; box-shadow: 0 6px #0056b3; }
         button:active { transform: translateY(4px); box-shadow: 0 2px #1e7e34; }
         #admin-section { margin-top: 30px; padding-top: 30px; border-top: 2px dashed #ddd; }
         input { padding: 10px; font-size: 1.2rem; width: 60px; text-align: center; border: 2px solid #ddd; border-radius: 10px; font-weight: bold; }
-        .tip-text { color: #e74c3c; font-weight: bold; font-size: 1rem; margin-top: 10px; }
+        .status { font-size: 0.8rem; color: #bbb; margin-top: 30px; }
+        .debug-tag { color: red; font-weight: bold; font-size: 0.8rem; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <div class="title" id="roleTitle">載入中...</div>
+    <div class="title" id="roleTitle">載入中... <span class="debug-tag">V5</span></div>
     <div class="label">目前叫號</div>
     <div id="currentNum" class="number-display">0</div>
     <div id="currentCounter" class="counter-info">請稍候</div>
@@ -35,19 +36,15 @@
         <hr style="border:0; border-top:1px solid #eee; margin: 30px 0;">
         <div class="label">您的號碼</div>
         <div id="myTicket" class="number-display" style="font-size: 4rem; color: #95a5a6;">--</div>
-        <div class="tip-text">⚠️ 擊點一次即可 / 📸 建議螢幕截圖</div>
-        <button class="btn-take" onclick="takeTicket()" style="margin-top: 20px;">點我取號</button>
+        <button class="btn-take" onclick="takeTicket()">點我取號</button>
     </div>
 
     <div id="admin-section" style="display:none;">
         <div style="margin-bottom:20px;">我在 <input type="number" id="counterId" value="1"> 號櫃檯</div>
-        
         <button class="btn-call" onclick="nextCall()">叫下一位</button>
-        
-        <button class="btn-replay" onclick="replayCall()" style="margin-top: 15px;">🔊 重播目前叫號</button>
-        
-        <button style="background:#6c757d; font-size:1rem; padding:10px; margin-top:30px; color:white;" onclick="resetQueue()">重置號碼</button>
+        <button style="background:#6c757d; font-size:1rem; padding:10px; margin-top:20px; box-shadow:0 4px #495057; color:white;" onclick="resetQueue()">重置號碼 (慎用)</button>
     </div>
+    <div class="status" id="dbStatus">路徑：queue_v5 | 狀態：連線中...</div>
 </div>
 
 <script>
@@ -58,70 +55,85 @@
         projectId: "special-edu-call",
         storageBucket: "special-edu-call.firebasestorage.app",
         messagingSenderId: "290449966999",
-        appId: "1:290449966999:web:7ed6e61a1c2b0c9b9de6d2"
+        appId: "1:290449966999:web:7ed6e61a1c2b0c9b9de6d2",
+        measurementId: "G-FP84NLD3MP"
     };
 
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
+
     const isAdmin = window.location.search.includes('admin');
-    document.getElementById('roleTitle').innerText = isAdmin ? "管理員端 V6.2" : "取號端 V6.2";
+    document.getElementById('roleTitle').innerHTML = isAdmin ? "管理員端 <span class='debug-tag'>V5</span>" : "取號端 <span class='debug-tag'>V5</span>";
     document.getElementById(isAdmin ? 'admin-section' : 'user-section').style.display = 'block';
 
-    // 全域變數記錄目前顯示的號碼
-    let currentDisplayNum = 0;
-    let currentDisplayCounter = 1;
-
+    // 1. 同步顯示內容 (這裡絕對禁止出現 speak() 語音函式)
     db.ref('queue_v5').on('value', (snapshot) => {
         const data = snapshot.val() || { current: 0, last: 0, counter: 1 };
-        currentDisplayNum = data.current;
-        currentDisplayCounter = data.counter;
-        document.getElementById('currentNum').innerText = currentDisplayNum;
-        document.getElementById('currentCounter').innerText = currentDisplayNum > 0 ? "請至 " + currentDisplayCounter + " 號櫃檯" : "準備叫號";
+        document.getElementById('currentNum').innerText = data.current;
+        document.getElementById('currentCounter').innerText = data.current > 0 ? "請至 " + data.counter + " 號櫃檯" : "準備叫號";
+        document.getElementById('dbStatus').innerText = "路徑：queue_v5 | 系統正常運作中";
     });
 
+    // 2. 取號功能：僅更新 last 資料
     function takeTicket() {
-        db.ref('queue_v5/last').transaction(v => (v || 0) + 1, (err, comm, snap) => {
-            if (comm) document.getElementById('myTicket').innerText = snap.val();
+        db.ref('queue_v5/last').transaction((last) => {
+            const next = (last || 0) + 1;
+            document.getElementById('myTicket').innerText = next;
+            return next;
         });
     }
 
-    // 「叫下一位」邏輯
+    // 3. 叫號功能：改用一次性讀取，手動觸發語音
     async function nextCall() {
-        if (!isAdmin) return;
-        window.speechSynthesis.speak(new SpeechSynthesisUtterance("")); // iPad 喚醒
-        const snap = await db.ref('queue_v5').once('value');
-        const data = snap.val() || { current: 0, last: 0 };
+        if (!isAdmin) return; // 二重保險：非管理員不能叫號
+        
+        const cid = document.getElementById('counterId').value;
+        const snapshot = await db.ref('queue_v5').once('value');
+        const data = snapshot.val() || { current: 0, last: 0 };
+
         if (data.current < data.last) {
             const nextNum = data.current + 1;
-            const cid = document.getElementById('counterId').value;
-            await db.ref('queue_v5').update({ current: nextNum, counter: cid });
-            setTimeout(() => speak(nextNum, cid), 200);
+            
+            // 更新資料庫
+            await db.ref('queue_v5').update({
+                current: nextNum,
+                counter: cid
+            });
+
+            // 只有按下按鈕的「這台裝置」會發出聲音
+            speak(nextNum, cid);
         } else {
             alert("目前沒有人在排隊喔！");
         }
     }
 
-    // 「重播目前叫號」邏輯：不改資料庫，直接唸
-    function replayCall() {
-        if (!isAdmin || currentDisplayNum === 0) return;
-        speak(currentDisplayNum, currentDisplayCounter);
-    }
-
-    function speak(n, c) {
-        const synth = window.speechSynthesis;
-        synth.cancel();
-        const msg = new SpeechSynthesisUtterance("請來賓 " + n + " 號，到 " + c + " 號櫃檯辦理");
-        msg.lang = 'zh-TW';
-        msg.rate = 0.85;
-        const voices = synth.getVoices();
-        const preferredVoice = voices.find(v => v.lang === 'zh-TW' && v.name.includes('Meijia')) || voices.find(v => v.lang.includes('zh-TW')) || voices[0];
-        if (preferredVoice) msg.voice = preferredVoice;
-        synth.speak(msg);
-    }
-
     function resetQueue() {
-        if(confirm("確定清零？")) db.ref('queue_v5').set({ current: 0, last: 0, counter: 1 });
+        if(confirm("確定要將所有號碼清零嗎？")) {
+            db.ref('queue_v5').set({ current: 0, last: 0, counter: 1 });
+            document.getElementById('myTicket').innerText = "--";
+        }
     }
+
+    // 4. 語音功能
+    function speak(n, c) {
+        if (!isAdmin) return;
+
+        window.speechSynthesis.cancel(); // 停止目前所有發音
+        const text = "請來賓 " + n + " 號，到 " + c + " 號櫃檯辦理";
+        const msg = new SpeechSynthesisUtterance(text);
+        
+        const voices = window.speechSynthesis.getVoices();
+        const voice = voices.find(v => (v.lang === 'zh-TW' || v.lang === 'zh_TW')) || voices[0];
+        
+        if (voice) msg.voice = voice;
+        msg.lang = 'zh-TW';
+        msg.rate = 0.7;   // 從 0.85 調降到 0.7，速度會明顯變慢且沉穩
+        msg.pitch = 1.0;  // 保持正常音調
+        msg.volume = 1;   // 確保音量最大
+        window.speechSynthesis.speak(msg);
+    }
+
+    window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.getVoices(); };
 </script>
 
 </body>
